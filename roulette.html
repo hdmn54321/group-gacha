@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Group Roulette</title>
+  <title>Group Gacha</title>
   <style>
     * {
       box-sizing: border-box;
@@ -141,22 +141,8 @@
       position: relative;
     }
 
-    #roulette {
+    #gacha {
       display: block;
-    }
-
-    .pointer {
-      position: absolute;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 0;
-      height: 0;
-      border-left: 15px solid transparent;
-      border-right: 15px solid transparent;
-      border-top: 30px solid #fff;
-      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-      z-index: 10;
     }
 
     .results {
@@ -216,7 +202,7 @@
   </style>
 </head>
 <body>
-  <h1>Group Roulette</h1>
+  <h1>Group Gacha</h1>
 
   <div class="container">
     <div class="panel left-panel">
@@ -235,20 +221,19 @@ Frank..."></textarea>
         <label for="groupCount">Number of Groups</label>
         <input type="number" id="groupCount" value="2" min="1" max="20">
       </div>
-      <button class="spin-btn" id="spinBtn">SPIN!</button>
+      <button class="spin-btn" id="spinBtn">GO!</button>
     </div>
 
     <div class="panel right-panel">
       <div class="canvas-container">
-        <div class="pointer"></div>
-        <canvas id="roulette" width="350" height="350"></canvas>
+        <canvas id="gacha" width="500" height="550"></canvas>
       </div>
       <div class="results" id="results"></div>
     </div>
   </div>
 
   <script>
-    const canvas = document.getElementById('roulette');
+    const canvas = document.getElementById('gacha');
     const ctx = canvas.getContext('2d');
     const namesInput = document.getElementById('names');
     const countDisplay = document.getElementById('count');
@@ -263,14 +248,299 @@ Frank..."></textarea>
       '#01a3a4', '#eb4d4b', '#6ab04c', '#7ed6df', '#e056fd'
     ];
 
-    let currentRotation = 0;
-    let isSpinning = false;
+    // Machine dimensions
+    const DOME_CENTER_X = canvas.width / 2;
+    const DOME_CENTER_Y = 160;
+    const DOME_RADIUS = 130;
+    const BALL_RADIUS = 18;
+    const TUBE_TOP = 320;
+    const TUBE_HEIGHT = 200;
+    const TUBE_WIDTH = 50;
+
+    let balls = [];
     let groups = [];
+    let isAnimating = false;
+    let animationPhase = 'idle'; // idle, bouncing, dispensing, done
+
+    class Ball {
+      constructor(name, groupIndex, color) {
+        this.name = name;
+        this.groupIndex = groupIndex;
+        this.color = color;
+        this.radius = BALL_RADIUS;
+
+        // Start at random position in dome
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * (DOME_RADIUS - this.radius - 10);
+        this.x = DOME_CENTER_X + Math.cos(angle) * dist;
+        this.y = DOME_CENTER_Y + Math.sin(angle) * dist * 0.7;
+
+        this.vx = (Math.random() - 0.5) * 8;
+        this.vy = (Math.random() - 0.5) * 8;
+        this.dispensed = false;
+        this.inTube = false;
+        this.targetX = 0;
+        this.targetY = 0;
+        this.settled = false;
+        this.glowIntensity = 0;
+      }
+
+      getInitials() {
+        const parts = this.name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        }
+        return this.name.substring(0, 2).toUpperCase();
+      }
+
+      updateInDome(dt) {
+        if (this.dispensed) return;
+
+        // Apply gravity
+        this.vy += 0.3;
+
+        // Apply velocity
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Bounce off dome walls
+        const dx = this.x - DOME_CENTER_X;
+        const dy = this.y - DOME_CENTER_Y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const maxDist = DOME_RADIUS - this.radius;
+
+        if (dist > maxDist) {
+          // Push back inside
+          const angle = Math.atan2(dy, dx);
+          this.x = DOME_CENTER_X + Math.cos(angle) * maxDist;
+          this.y = DOME_CENTER_Y + Math.sin(angle) * maxDist;
+
+          // Reflect velocity
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const dot = this.vx * nx + this.vy * ny;
+          this.vx = (this.vx - 2 * dot * nx) * 0.8;
+          this.vy = (this.vy - 2 * dot * ny) * 0.8;
+        }
+
+        // Damping
+        this.vx *= 0.995;
+        this.vy *= 0.995;
+      }
+
+      updateDispensing(dt) {
+        if (this.settled) return;
+
+        const dx = this.targetX - this.x;
+        const dy = this.targetY - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 3) {
+          this.x = this.targetX;
+          this.y = this.targetY;
+          this.settled = true;
+          this.glowIntensity = 1;
+        } else {
+          // Move towards target
+          const speed = Math.min(dist * 0.15, 12);
+          this.x += (dx / dist) * speed;
+          this.y += (dy / dist) * speed;
+        }
+      }
+
+      draw(ctx) {
+        // Glow effect when settled
+        if (this.glowIntensity > 0) {
+          ctx.save();
+          ctx.shadowColor = this.color;
+          ctx.shadowBlur = 20 * this.glowIntensity;
+          this.glowIntensity *= 0.95;
+          ctx.restore();
+        }
+
+        // Ball body
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+
+        // Gradient for 3D effect
+        const gradient = ctx.createRadialGradient(
+          this.x - this.radius * 0.3, this.y - this.radius * 0.3, 0,
+          this.x, this.y, this.radius
+        );
+        gradient.addColorStop(0, this.lightenColor(this.color, 40));
+        gradient.addColorStop(0.7, this.color);
+        gradient.addColorStop(1, this.darkenColor(this.color, 30));
+
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // Highlight
+        ctx.beginPath();
+        ctx.arc(this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.25, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.fill();
+
+        // Initials
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${this.radius * 0.8}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 2;
+        ctx.fillText(this.getInitials(), this.x, this.y);
+        ctx.shadowBlur = 0;
+      }
+
+      lightenColor(color, percent) {
+        const num = parseInt(color.slice(1), 16);
+        const r = Math.min(255, (num >> 16) + percent);
+        const g = Math.min(255, ((num >> 8) & 0x00FF) + percent);
+        const b = Math.min(255, (num & 0x0000FF) + percent);
+        return `rgb(${r},${g},${b})`;
+      }
+
+      darkenColor(color, percent) {
+        const num = parseInt(color.slice(1), 16);
+        const r = Math.max(0, (num >> 16) - percent);
+        const g = Math.max(0, ((num >> 8) & 0x00FF) - percent);
+        const b = Math.max(0, (num & 0x0000FF) - percent);
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+
+    // Ball-to-ball collision
+    function handleCollisions() {
+      for (let i = 0; i < balls.length; i++) {
+        if (balls[i].dispensed) continue;
+        for (let j = i + 1; j < balls.length; j++) {
+          if (balls[j].dispensed) continue;
+
+          const dx = balls[j].x - balls[i].x;
+          const dy = balls[j].y - balls[i].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const minDist = balls[i].radius + balls[j].radius;
+
+          if (dist < minDist && dist > 0) {
+            // Separate balls
+            const overlap = (minDist - dist) / 2;
+            const nx = dx / dist;
+            const ny = dy / dist;
+
+            balls[i].x -= overlap * nx;
+            balls[i].y -= overlap * ny;
+            balls[j].x += overlap * nx;
+            balls[j].y += overlap * ny;
+
+            // Exchange velocities along collision normal
+            const dvx = balls[i].vx - balls[j].vx;
+            const dvy = balls[i].vy - balls[j].vy;
+            const dvn = dvx * nx + dvy * ny;
+
+            balls[i].vx -= dvn * nx * 0.8;
+            balls[i].vy -= dvn * ny * 0.8;
+            balls[j].vx += dvn * nx * 0.8;
+            balls[j].vy += dvn * ny * 0.8;
+          }
+        }
+      }
+    }
+
+    function drawMachine() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const groupCount = parseInt(groupCountInput.value) || 2;
+
+      // Machine frame
+      ctx.fillStyle = '#2d3436';
+      ctx.fillRect(DOME_CENTER_X - 80, DOME_CENTER_Y + DOME_RADIUS - 20, 160, 50);
+
+      // Dome (glass effect)
+      ctx.beginPath();
+      ctx.arc(DOME_CENTER_X, DOME_CENTER_Y, DOME_RADIUS, 0, Math.PI * 2);
+
+      const domeGradient = ctx.createRadialGradient(
+        DOME_CENTER_X - 40, DOME_CENTER_Y - 40, 0,
+        DOME_CENTER_X, DOME_CENTER_Y, DOME_RADIUS
+      );
+      domeGradient.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
+      domeGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.05)');
+      domeGradient.addColorStop(1, 'rgba(255, 255, 255, 0.1)');
+
+      ctx.fillStyle = domeGradient;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Dome highlight
+      ctx.beginPath();
+      ctx.arc(DOME_CENTER_X - 30, DOME_CENTER_Y - 50, 40, 0, Math.PI * 2);
+      const highlightGradient = ctx.createRadialGradient(
+        DOME_CENTER_X - 30, DOME_CENTER_Y - 50, 0,
+        DOME_CENTER_X - 30, DOME_CENTER_Y - 50, 40
+      );
+      highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
+      highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = highlightGradient;
+      ctx.fill();
+
+      // Draw tubes
+      const totalWidth = groupCount * TUBE_WIDTH + (groupCount - 1) * 15;
+      const startX = DOME_CENTER_X - totalWidth / 2;
+
+      for (let i = 0; i < groupCount; i++) {
+        const tubeX = startX + i * (TUBE_WIDTH + 15);
+        const color = colors[i % colors.length];
+
+        // Tube body
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+
+        // Rounded rectangle for tube
+        const tubeRadius = 10;
+        ctx.beginPath();
+        ctx.roundRect(tubeX, TUBE_TOP, TUBE_WIDTH, TUBE_HEIGHT, [0, 0, tubeRadius, tubeRadius]);
+        ctx.fill();
+        ctx.stroke();
+
+        // Tube label
+        ctx.fillStyle = color;
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Group ${i + 1}`, tubeX + TUBE_WIDTH / 2, TUBE_TOP + TUBE_HEIGHT + 20);
+      }
+
+      // Draw chute from dome to tubes
+      ctx.beginPath();
+      ctx.moveTo(DOME_CENTER_X - 25, DOME_CENTER_Y + DOME_RADIUS);
+      ctx.lineTo(DOME_CENTER_X - 40, TUBE_TOP);
+      ctx.lineTo(DOME_CENTER_X + 40, TUBE_TOP);
+      ctx.lineTo(DOME_CENTER_X + 25, DOME_CENTER_Y + DOME_RADIUS);
+      ctx.closePath();
+      ctx.fillStyle = '#2d3436';
+      ctx.fill();
+      ctx.strokeStyle = '#636e72';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Draw balls
+      balls.forEach(ball => ball.draw(ctx));
+    }
 
     // Update name count
     namesInput.addEventListener('input', () => {
       const names = getNames();
       countDisplay.textContent = names.length;
+      if (!isAnimating) {
+        initializeBalls();
+      }
+    });
+
+    groupCountInput.addEventListener('change', () => {
+      if (!isAnimating) {
+        initializeBalls();
+      }
     });
 
     function getNames() {
@@ -300,104 +570,140 @@ Frank..."></textarea>
       return groups;
     }
 
-    function drawWheel(rotation = 0) {
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-      const radius = Math.min(centerX, centerY) - 10;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+    function initializeBalls() {
+      const names = getNames();
       const groupCount = parseInt(groupCountInput.value) || 2;
-      const sliceAngle = (2 * Math.PI) / groupCount;
 
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate(rotation);
+      balls = [];
 
-      for (let i = 0; i < groupCount; i++) {
-        const startAngle = i * sliceAngle;
-        const endAngle = startAngle + sliceAngle;
-
-        // Draw slice
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.arc(0, 0, radius, startAngle, endAngle);
-        ctx.closePath();
-        ctx.fillStyle = colors[i % colors.length];
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Draw group label
-        ctx.save();
-        ctx.rotate(startAngle + sliceAngle / 2);
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px sans-serif';
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 3;
-        ctx.fillText(`Group ${i + 1}`, radius - 20, 5);
-        ctx.restore();
+      if (names.length === 0) {
+        drawMachine();
+        return;
       }
 
-      // Center circle
-      ctx.beginPath();
-      ctx.arc(0, 0, 25, 0, 2 * Math.PI);
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 3;
-      ctx.stroke();
+      // Pre-assign groups for coloring (but don't show results yet)
+      const tempGroups = assignGroups(names, groupCount);
 
-      ctx.restore();
+      tempGroups.forEach((group, groupIndex) => {
+        group.forEach(name => {
+          const color = colors[groupIndex % colors.length];
+          balls.push(new Ball(name, groupIndex, color));
+        });
+      });
+
+      // Shuffle ball order so colors are mixed in dome
+      balls = shuffleArray(balls);
+
+      drawMachine();
     }
 
-    function spin() {
-      if (isSpinning) return;
+    function startAnimation() {
+      if (isAnimating) return;
 
       const names = getNames();
       const groupCount = parseInt(groupCountInput.value) || 2;
 
       if (names.length === 0) {
-        alert('Please enter at least one name!');
         return;
       }
 
       if (groupCount > names.length) {
-        alert('Number of groups cannot exceed number of names!');
         return;
       }
 
-      isSpinning = true;
+      isAnimating = true;
       spinBtn.disabled = true;
       resultsDiv.innerHTML = '';
 
-      // Assign groups
+      // Re-assign groups
       groups = assignGroups(names, groupCount);
 
-      // Animation
-      const spinDuration = 4000;
-      const totalRotation = (Math.random() * 5 + 10) * Math.PI * 2;
-      const startRotation = currentRotation;
-      const startTime = performance.now();
+      // Create balls with proper group assignments
+      balls = [];
+      groups.forEach((group, groupIndex) => {
+        group.forEach(name => {
+          const color = colors[groupIndex % colors.length];
+          balls.push(new Ball(name, groupIndex, color));
+        });
+      });
+      balls = shuffleArray(balls);
 
-      function animate(currentTime) {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / spinDuration, 1);
+      // Add initial chaos
+      balls.forEach(ball => {
+        ball.vx = (Math.random() - 0.5) * 20;
+        ball.vy = (Math.random() - 0.5) * 20;
+      });
 
-        // Ease out cubic
-        const easeOut = 1 - Math.pow(1 - progress, 3);
+      animationPhase = 'bouncing';
 
-        currentRotation = startRotation + totalRotation * easeOut;
-        drawWheel(currentRotation);
+      let bounceTime = 0;
+      const bounceDuration = 3000;
+      let dispensingIndex = 0;
+      let dispenseTimer = 0;
 
-        if (progress < 1) {
+      function animate(timestamp) {
+        if (animationPhase === 'bouncing') {
+          bounceTime += 16;
+
+          // Update ball positions
+          balls.forEach(ball => ball.updateInDome());
+          handleCollisions();
+
+          if (bounceTime >= bounceDuration) {
+            animationPhase = 'dispensing';
+
+            // Calculate target positions in tubes
+            const groupCount = parseInt(groupCountInput.value) || 2;
+            const totalWidth = groupCount * TUBE_WIDTH + (groupCount - 1) * 15;
+            const startX = DOME_CENTER_X - totalWidth / 2;
+
+            // Count balls per group for stacking
+            const groupCounts = new Array(groupCount).fill(0);
+
+            balls.forEach(ball => {
+              const tubeX = startX + ball.groupIndex * (TUBE_WIDTH + 15);
+              ball.targetX = tubeX + TUBE_WIDTH / 2;
+              ball.targetY = TUBE_TOP + TUBE_HEIGHT - BALL_RADIUS - 5 - groupCounts[ball.groupIndex] * (BALL_RADIUS * 2 + 4);
+              groupCounts[ball.groupIndex]++;
+            });
+
+            // Sort balls by group for sequential dispensing
+            balls.sort((a, b) => a.groupIndex - b.groupIndex);
+          }
+        } else if (animationPhase === 'dispensing') {
+          dispenseTimer += 16;
+
+          // Dispense balls one by one
+          if (dispenseTimer > 100 && dispensingIndex < balls.length) {
+            balls[dispensingIndex].dispensed = true;
+            dispensingIndex++;
+            dispenseTimer = 0;
+          }
+
+          // Update dispensing balls
+          balls.forEach(ball => {
+            if (ball.dispensed) {
+              ball.updateDispensing();
+            } else {
+              ball.updateInDome();
+            }
+          });
+          handleCollisions();
+
+          // Check if all settled
+          const allSettled = balls.every(ball => ball.settled);
+          if (allSettled) {
+            animationPhase = 'done';
+            isAnimating = false;
+            spinBtn.disabled = false;
+            showResults();
+          }
+        }
+
+        drawMachine();
+
+        if (animationPhase !== 'done') {
           requestAnimationFrame(animate);
-        } else {
-          isSpinning = false;
-          spinBtn.disabled = false;
-          showResults();
         }
       }
 
@@ -429,12 +735,27 @@ Frank..."></textarea>
       return div.innerHTML;
     }
 
-    // Event listeners
-    spinBtn.addEventListener('click', spin);
-    groupCountInput.addEventListener('change', () => drawWheel(currentRotation));
+    // Idle animation
+    let idleAnimationId;
+    function idleAnimate() {
+      if (!isAnimating && balls.length > 0) {
+        balls.forEach(ball => {
+          if (!ball.dispensed) {
+            ball.updateInDome();
+          }
+        });
+        handleCollisions();
+        drawMachine();
+      }
+      idleAnimationId = requestAnimationFrame(idleAnimate);
+    }
 
-    // Initial draw
-    drawWheel();
+    // Event listeners
+    spinBtn.addEventListener('click', startAnimation);
+
+    // Initialize
+    initializeBalls();
+    idleAnimate();
   </script>
 </body>
 </html>
