@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Group Roulette</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: #fff;
+    }
+
+    h1 {
+      text-align: center;
+      padding: 20px;
+      font-size: 2rem;
+      background: linear-gradient(90deg, #ff6b6b, #feca57, #48dbfb);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .container {
+      display: flex;
+      gap: 20px;
+      padding: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .panel {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+    }
+
+    .left-panel {
+      flex: 1;
+      min-width: 250px;
+    }
+
+    .center-panel {
+      flex: 0 0 200px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .right-panel {
+      flex: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 10px;
+      font-weight: 600;
+      color: #feca57;
+    }
+
+    textarea {
+      width: 100%;
+      height: 300px;
+      padding: 15px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      color: #fff;
+      font-size: 14px;
+      resize: vertical;
+    }
+
+    textarea::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    textarea:focus {
+      outline: 2px solid #48dbfb;
+    }
+
+    .name-count {
+      margin-top: 10px;
+      color: #48dbfb;
+      font-size: 14px;
+    }
+
+    input[type="number"] {
+      width: 100px;
+      padding: 15px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      color: #fff;
+      font-size: 24px;
+      text-align: center;
+    }
+
+    input[type="number"]:focus {
+      outline: 2px solid #48dbfb;
+    }
+
+    button {
+      padding: 15px 40px;
+      font-size: 18px;
+      font-weight: 600;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .spin-btn {
+      background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+      color: #1a1a2e;
+    }
+
+    .spin-btn:hover:not(:disabled) {
+      transform: scale(1.05);
+      box-shadow: 0 10px 30px rgba(255, 107, 107, 0.4);
+    }
+
+    .spin-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .canvas-container {
+      position: relative;
+    }
+
+    #roulette {
+      display: block;
+    }
+
+    .pointer {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 15px solid transparent;
+      border-right: 15px solid transparent;
+      border-top: 30px solid #fff;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+      z-index: 10;
+    }
+
+    .results {
+      width: 100%;
+      max-width: 500px;
+    }
+
+    .results h3 {
+      text-align: center;
+      margin-bottom: 15px;
+      color: #feca57;
+    }
+
+    .groups-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .group-card {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 12px;
+      padding: 15px;
+      border-left: 4px solid;
+    }
+
+    .group-card h4 {
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
+
+    .group-card ul {
+      list-style: none;
+      font-size: 14px;
+    }
+
+    .group-card li {
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .group-card li:last-child {
+      border-bottom: none;
+    }
+
+    @media (max-width: 900px) {
+      .container {
+        flex-direction: column;
+      }
+
+      .center-panel {
+        flex-direction: row;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Group Roulette</h1>
+
+  <div class="container">
+    <div class="panel left-panel">
+      <label for="names">Paste Names (one per line)</label>
+      <textarea id="names" placeholder="Alice
+Bob
+Charlie
+Diana
+Eve
+Frank..."></textarea>
+      <div class="name-count"><span id="count">0</span> names entered</div>
+    </div>
+
+    <div class="panel center-panel">
+      <div>
+        <label for="groupCount">Number of Groups</label>
+        <input type="number" id="groupCount" value="2" min="1" max="20">
+      </div>
+      <button class="spin-btn" id="spinBtn">SPIN!</button>
+    </div>
+
+    <div class="panel right-panel">
+      <div class="canvas-container">
+        <div class="pointer"></div>
+        <canvas id="roulette" width="350" height="350"></canvas>
+      </div>
+      <div class="results" id="results"></div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('roulette');
+    const ctx = canvas.getContext('2d');
+    const namesInput = document.getElementById('names');
+    const countDisplay = document.getElementById('count');
+    const groupCountInput = document.getElementById('groupCount');
+    const spinBtn = document.getElementById('spinBtn');
+    const resultsDiv = document.getElementById('results');
+
+    const colors = [
+      '#ff6b6b', '#feca57', '#48dbfb', '#1dd1a1', '#ff9ff3',
+      '#54a0ff', '#5f27cd', '#00d2d3', '#ff9f43', '#10ac84',
+      '#ee5a24', '#0abde3', '#c8d6e5', '#8395a7', '#f368e0',
+      '#01a3a4', '#eb4d4b', '#6ab04c', '#7ed6df', '#e056fd'
+    ];
+
+    let currentRotation = 0;
+    let isSpinning = false;
+    let groups = [];
+
+    // Update name count
+    namesInput.addEventListener('input', () => {
+      const names = getNames();
+      countDisplay.textContent = names.length;
+    });
+
+    function getNames() {
+      return namesInput.value
+        .split('\n')
+        .map(n => n.trim())
+        .filter(n => n.length > 0);
+    }
+
+    function shuffleArray(array) {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    }
+
+    function assignGroups(names, groupCount) {
+      const shuffled = shuffleArray(names);
+      const groups = Array.from({ length: groupCount }, () => []);
+
+      shuffled.forEach((name, index) => {
+        groups[index % groupCount].push(name);
+      });
+
+      return groups;
+    }
+
+    function drawWheel(rotation = 0) {
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radius = Math.min(centerX, centerY) - 10;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const groupCount = parseInt(groupCountInput.value) || 2;
+      const sliceAngle = (2 * Math.PI) / groupCount;
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(rotation);
+
+      for (let i = 0; i < groupCount; i++) {
+        const startAngle = i * sliceAngle;
+        const endAngle = startAngle + sliceAngle;
+
+        // Draw slice
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, radius, startAngle, endAngle);
+        ctx.closePath();
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Draw group label
+        ctx.save();
+        ctx.rotate(startAngle + sliceAngle / 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 3;
+        ctx.fillText(`Group ${i + 1}`, radius - 20, 5);
+        ctx.restore();
+      }
+
+      // Center circle
+      ctx.beginPath();
+      ctx.arc(0, 0, 25, 0, 2 * Math.PI);
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function spin() {
+      if (isSpinning) return;
+
+      const names = getNames();
+      const groupCount = parseInt(groupCountInput.value) || 2;
+
+      if (names.length === 0) {
+        alert('Please enter at least one name!');
+        return;
+      }
+
+      if (groupCount > names.length) {
+        alert('Number of groups cannot exceed number of names!');
+        return;
+      }
+
+      isSpinning = true;
+      spinBtn.disabled = true;
+      resultsDiv.innerHTML = '';
+
+      // Assign groups
+      groups = assignGroups(names, groupCount);
+
+      // Animation
+      const spinDuration = 4000;
+      const totalRotation = (Math.random() * 5 + 10) * Math.PI * 2;
+      const startRotation = currentRotation;
+      const startTime = performance.now();
+
+      function animate(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / spinDuration, 1);
+
+        // Ease out cubic
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+
+        currentRotation = startRotation + totalRotation * easeOut;
+        drawWheel(currentRotation);
+
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          isSpinning = false;
+          spinBtn.disabled = false;
+          showResults();
+        }
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    function showResults() {
+      let html = '<h3>Group Assignments</h3><div class="groups-container">';
+
+      groups.forEach((group, index) => {
+        const color = colors[index % colors.length];
+        html += `
+          <div class="group-card" style="border-left-color: ${color}">
+            <h4 style="color: ${color}">Group ${index + 1}</h4>
+            <ul>
+              ${group.map(name => `<li>${escapeHtml(name)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      });
+
+      html += '</div>';
+      resultsDiv.innerHTML = html;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Event listeners
+    spinBtn.addEventListener('click', spin);
+    groupCountInput.addEventListener('change', () => drawWheel(currentRotation));
+
+    // Initial draw
+    drawWheel();
+  </script>
+</body>
+</html>
